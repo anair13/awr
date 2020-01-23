@@ -18,7 +18,7 @@ class RLPath(object):
         self.clear()
 
         return
-    
+
     def pathlength(self):
         return len(self.actions)
 

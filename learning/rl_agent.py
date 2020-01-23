@@ -11,6 +11,8 @@ import util.normalizer as normalizer
 import util.replay_buffer as replay_buffer
 import util.rl_path as rl_path
 
+import pickle
+import glob
 '''
 Reinforcement Learning Agent
 '''
@@ -22,7 +24,7 @@ class RLAgent(abc.ABC):
     SOLVER_SCOPE = "solver"
     RESOURCE_SCOPE = "resource"
 
-    def __init__(self, 
+    def __init__(self,
                  env,
                  sess,
                  discount=0.99,
@@ -38,9 +40,9 @@ class RLAgent(abc.ABC):
         self._samples_per_iter = samples_per_iter
         self._normalizer_samples = normalizer_samples
         self._replay_buffer = self._build_replay_buffer(replay_buffer_size)
-        
+
         self.visualize = visualize
-        
+
         self._logger = None
 
         with self._sess.as_default(), self._sess.graph.as_default():
@@ -91,7 +93,7 @@ class RLAgent(abc.ABC):
         log_file = os.path.join(output_dir, "log.txt")
         self._logger = logger.Logger()
         self._logger.configure_output_file(log_file)
-        
+
         model_file = os.path.join(output_dir, "model.ckpt")
 
         iter = 0
@@ -102,16 +104,22 @@ class RLAgent(abc.ABC):
         start_time = time.time()
 
         while (iter < max_iter):
-            train_return, train_path_count, new_sample_count = self._rollout_train(self._samples_per_iter)
+            if iter == 0 and self.load_offpolicy_data:
+                # Off-policy data loading
+                train_return, train_path_count, new_sample_count, train_paths = self._rollout_offpolicy()
+            else:
+                train_return, train_path_count, new_sample_count, train_paths = self._rollout_train(self._samples_per_iter)
 
             total_train_return += train_path_count * train_return
             total_train_path_count += train_path_count
             avg_train_return = total_train_return / total_train_path_count
-            
+
             total_samples = self.get_total_samples()
             wall_time = time.time() - start_time
             wall_time /= 60 * 60 # store time in hours
-            
+
+            train_task_rewards = np.mean([np.mean(path.task_rewards) for path in train_paths])
+
             self._logger.log_tabular("Iteration", iter)
             self._logger.log_tabular("Wall_Time", wall_time)
             self._logger.log_tabular("Samples", total_samples)
@@ -119,24 +127,30 @@ class RLAgent(abc.ABC):
             self._logger.log_tabular("Train_Paths", total_train_path_count)
             self._logger.log_tabular("Test_Return", test_return)
             self._logger.log_tabular("Test_Paths", test_path_count)
-            
+            self._logger.log_tabular("Train_Task_Rewards", train_task_rewards)
+            self._logger.log_tabular("Test_Task_Rewards", 0)
+
             if (self._need_normalizer_update() and iter == 0):
                 self._update_normalizers()
 
             self._update(iter, new_sample_count)
-            
+
             if (self._need_normalizer_update()):
                 self._update_normalizers()
 
             if (iter % output_iters == 0):
-                test_return, test_path_count = self._rollout_test(test_episodes, print_info=False)
+                test_return, test_path_count, test_paths = self._rollout_test(test_episodes, print_info=False)
+
+                test_task_rewards = np.mean([np.mean(path.task_rewards) for path in train_paths])
+
                 self._logger.log_tabular("Test_Return", test_return)
                 self._logger.log_tabular("Test_Paths", test_path_count)
+                self._logger.log_tabular("Test_Task_Rewards", test_task_rewards)
 
                 self.save_model(model_file)
                 self._logger.print_tabular()
                 self._logger.dump_tabular()
-                
+
                 total_train_return = 0
                 total_train_path_count = 0
             else:
@@ -145,7 +159,29 @@ class RLAgent(abc.ABC):
             iter += 1
 
         return
-    
+
+    def _rollout_offpolicy(self):
+        total_train_return = 0
+        total_train_path_count = 0
+        total_new_samples = 0
+
+        demo_path = self.offpolicy_data_kwargs["demo_path"]
+        # train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths("/home/ashvin/code/railrl-private/gitignore/rlbench/demo_door_fixed2/demos5b_10_dict.npy")
+        # train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths("/home/ashvin/data/s3doodad/demos/icml2020/hand/pen.npy")
+        train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths(demo_path)
+        total_train_return += train_path_count * train_return
+        total_train_path_count += train_path_count
+        total_new_samples += new_sample_count
+
+        # train_return, train_path_count, new_sample_count, paths = self._rollout_load_paths("/home/ashvin/data/s3doodad/ashvin/rfeatures/rlbench/open-drawer-vision/td3bc-with-state3/run0/id0/video_*_vae.p")
+        # total_train_return += train_path_count * train_return
+        # total_train_path_count += train_path_count
+        # total_new_samples += new_sample_count
+
+        # all_paths += paths
+
+        return total_train_return / total_train_path_count, total_train_path_count, total_new_samples, all_paths
+
     def save_model(self, out_path):
         try:
             save_path = self._saver.save(self._sess, out_path, write_meta_graph=False, write_state=False)
@@ -162,7 +198,7 @@ class RLAgent(abc.ABC):
 
     def get_state_bound_min(self):
         return self._env.observation_space.low
-    
+
     def get_state_bound_max(self):
         return self._env.observation_space.high
 
@@ -203,7 +239,7 @@ class RLAgent(abc.ABC):
         inf_mask = np.logical_or((high >= np.finfo(np.float32).max), (low <= np.finfo(np.float32).min))
         high[inf_mask] = 1.0
         low[inf_mask] = -1.0
-        
+
         mean = 0.5 * (high + low)
         std = 0.5 * (high - low)
 
@@ -219,7 +255,7 @@ class RLAgent(abc.ABC):
         inf_mask = np.logical_or((high >= np.finfo(np.float32).max), (low <= np.finfo(np.float32).min))
         high[inf_mask] = 1.0
         low[inf_mask] = -1.0
-        
+
         mean = 0.5 * (high + low)
         std = 0.5 * (high - low)
 
@@ -236,7 +272,7 @@ class RLAgent(abc.ABC):
     def _build_replay_buffer(self, buffer_size):
         buffer = replay_buffer.ReplayBuffer(buffer_size=buffer_size)
         return buffer
-    
+
     @abc.abstractmethod
     def sample_action(self, s, test):
         pass
@@ -248,7 +284,7 @@ class RLAgent(abc.ABC):
     @abc.abstractmethod
     def _build_losses(self):
         pass
-    
+
     @abc.abstractmethod
     def _build_solvers(self):
         pass
@@ -267,11 +303,13 @@ class RLAgent(abc.ABC):
         assert len(vars) > 0
         self._saver = tf.train.Saver(vars, max_to_keep=0)
         return
-    
+
     def _rollout_train(self, num_samples):
         new_sample_count = 0
         total_return = 0
         path_count = 0
+
+        paths = []
 
         while (new_sample_count < num_samples):
             path = self._rollout_path(test=False)
@@ -287,14 +325,16 @@ class RLAgent(abc.ABC):
                 new_sample_count += path.pathlength()
                 total_return += path_return
                 path_count += 1
+                paths.append(path)
             else:
                 assert False, "Invalid path detected"
 
         avg_return = total_return / path_count
 
-        return avg_return, path_count, new_sample_count
+        return avg_return, path_count, new_sample_count, paths
 
     def _rollout_test(self, num_episodes, print_info=False):
+        paths = []
         total_return = 0
         for e in range(num_episodes):
             path = self._rollout_path(test=True)
@@ -306,10 +346,12 @@ class RLAgent(abc.ABC):
                 logger.Logger.print("Curr_Return: {:.3f}".format(path_return))
                 logger.Logger.print("Avg_Return: {:.3f}\n".format(total_return / (e + 1)))
 
-        avg_return = total_return / num_episodes
-        return avg_return, num_episodes
+            paths.append(path)
 
-    def _rollout_path(self, test):
+        avg_return = total_return / num_episodes
+        return avg_return, num_episodes, paths
+
+    def _rollout_path(self, test, max_path_length=200):
         path = rl_path.RLPath()
 
         s = self._env.reset()
@@ -317,18 +359,99 @@ class RLAgent(abc.ABC):
         path.states.append(s)
 
         done = False
+        t = 0
+        infos = []
         while not done:
             a, logp = self.sample_action(s, test)
             s, r, done, info = self._step_env(a)
             s = np.array(s)
-            
+
             path.states.append(s)
             path.actions.append(a)
-            path.rewards.append(r)
+            path.rewards.append(float(r))
             path.logps.append(logp)
+            infos.append(info)
 
             if (self.visualize):
                 self.render_env()
+
+            t += 1
+            if t >= max_path_length:
+                break
+
+        path.terminate = self._check_env_termination()
+
+        path.task_rewards = []
+        for info in infos:
+            # import ipdb; ipdb.set_trace()
+            # path.task_rewards.append(info["task_reward"])
+            # path.task_rewards.append(info["goal_achieved"])
+            path.task_rewards.append(0) # info["goal_achieved"])
+
+        return path
+
+    def _rollout_load_paths(self, pattern):
+        new_sample_count = 0
+        path_count = 0
+        total_return = 0
+        paths = []
+
+        for filename in glob.glob(pattern):
+            print("loading", filename)
+            data = np.load(open(filename, "rb"), allow_pickle=True)
+            for railrl_path in data:
+                path = self._load_path(railrl_path)
+
+                path_id = self._replay_buffer.store(path)
+                valid_path = path_id != replay_buffer.INVALID_IDX
+
+                if valid_path:
+                    path_return = path.calc_return()
+
+                    if (self._enable_normalizer_update()):
+                        self._record_normalizers(path)
+
+                    new_sample_count += path.pathlength()
+                    total_return += path_return
+                    path_count += 1
+                    paths.append(path)
+                else:
+                    assert False, "Invalid path detected"
+
+        avg_return = total_return / path_count
+        return avg_return, path_count, new_sample_count, paths
+
+    def _load_path(self, railrl_path):
+        path = rl_path.RLPath()
+        H = min(len(railrl_path["observations"]), len(railrl_path["actions"]))
+
+        print("traj length", H)
+
+        path.task_rewards = []
+
+        obs_key = self.offpolicy_data_kwargs.get("obs_key", False)
+
+        for i in range(H):
+            # self._env.update_
+            ob = railrl_path["observations"][i]
+            # self._env.update_obs(ob)
+            # print(ob.keys())
+            if obs_key:
+                s = ob[obs_key]
+            else:
+                s = ob
+            # s = ob["state_observation"]
+            path.states.append(s)
+
+        for i in range(H-1):
+            a = railrl_path["actions"][i]
+            r1 = float(railrl_path["rewards"][i])
+            # r2 = self._env.compute_reward(a, railrl_path["observations"][i+1])
+            path.actions.append(a)
+            path.rewards.append(r1)
+            # path.rewards.append(r2)
+            path.logps.append(0.0)
+            path.task_rewards.append(0)
 
         path.terminate = self._check_env_termination()
 
@@ -341,10 +464,10 @@ class RLAgent(abc.ABC):
         return output
 
     def _check_env_termination(self):
-        if (self._env._elapsed_steps >= self._env._max_episode_steps):
-           term = rl_path.Terminate.Null
-        else:
-           term = rl_path.Terminate.Fail
+        # if (self._env._elapsed_steps >= self._env._max_episode_steps):
+        term = rl_path.Terminate.Null
+        # else:
+           # term = rl_path.Terminate.Fail
         return term
 
     def _record_normalizers(self, path):
@@ -389,7 +512,7 @@ class RLAgent(abc.ABC):
 
         elif (isinstance(action_space, gym.spaces.Discrete)):
             output_size = self._env.action_space.n
-            
+
             kernel_init = tf.random_uniform_initializer(minval=-init_output_scale, maxval=init_output_scale)
             bias_init = tf.zeros_initializer()
 
@@ -399,7 +522,7 @@ class RLAgent(abc.ABC):
                                             bias_initializer=bias_init,
                                             activation=None)
             a_pd_tf = tf.contrib.distributions.Categorical(logits=logits_tf)
-            
+
         else:
             assert False, "Unsupported action space: " + str(self._env.action_space)
 
@@ -414,7 +537,7 @@ class RLAgent(abc.ABC):
         sample_count = self.get_total_samples()
         enable_update = sample_count < self._normalizer_samples
         return enable_update
-    
+
     def _action_bound_loss(self, a_pd_tf):
         action_space = self.get_action_space()
         if (isinstance(action_space, gym.spaces.Box)):

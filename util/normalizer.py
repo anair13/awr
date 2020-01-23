@@ -5,13 +5,13 @@ import tensorflow as tf
 from util.logger import Logger
 
 class Normalizer(object):
-    def __init__(self, 
-                 sess, 
-                 scope, 
-                 size, 
-                 init_mean=None, 
-                 init_std=None, 
-                 eps=0.01, 
+    def __init__(self,
+                 sess,
+                 scope,
+                 size,
+                 init_mean=None,
+                 init_std=None,
+                 eps=0.01,
                  clip=np.inf):
 
         self._sess = sess
@@ -41,7 +41,7 @@ class Normalizer(object):
             self._std = init_std
 
         self._mean_sq = self.calc_mean_sq(self._mean, self._std)
-        
+
         self._new_count = 0
         self._new_sum = np.zeros_like(self._mean)
         self._new_sum_sq = np.zeros_like(self._mean_sq)
@@ -58,8 +58,7 @@ class Normalizer(object):
             assert(size == 1)
             x = np.array([[x]])
 
-        assert x.shape[-1] == size, \
-            Logger.print('Normalizer shape mismatch, expecting size {:d}, but got {:d}'.format(size, x.shape[-1]))
+        assert x.shape[-1] == size, 'Normalizer shape mismatch, expecting size {:d}, but got {:d}'.format(size, x.shape[-1])
         x = np.reshape(x, [-1, size])
 
         self._new_count += x.shape[0]
@@ -95,7 +94,7 @@ class Normalizer(object):
     def set_mean_std(self, mean, std):
         size = self.get_size()
         is_array = isinstance(mean, np.ndarray) and isinstance(std, np.ndarray)
-        
+
         if not is_array:
             assert(size == 1)
             mean = np.array([mean])
@@ -103,7 +102,7 @@ class Normalizer(object):
 
         assert len(mean) == size and len(std) == size, \
             Logger.print('Normalizer shape mismatch, expecting size {:d}, but got {:d} and {:d}'.format(size, len(mean), len(std)))
-        
+
         self._mean = mean
         self._std = std
         self._mean_sq = self.calc_mean_sq(self._mean, self._std)
@@ -153,16 +152,16 @@ class Normalizer(object):
 
     def need_update(self):
         return self._new_count > 0
-    
+
     def _build_resource_tf(self):
         self._count_tf = tf.get_variable(dtype=tf.int32, name="count", initializer=np.array([self._count], dtype=np.int32), trainable=False)
         self._mean_tf = tf.get_variable(dtype=tf.float32, name="mean", initializer=self._mean.astype(np.float32), trainable=False)
         self._std_tf = tf.get_variable(dtype=tf.float32, name="std", initializer=self._std.astype(np.float32), trainable=False)
-        
+
         self._count_ph = tf.get_variable(dtype=tf.int32, name="count_ph", shape=[1])
         self._mean_ph = tf.get_variable(dtype=tf.float32, name="mean_ph", shape=self._mean.shape)
         self._std_ph = tf.get_variable(dtype=tf.float32, name="std_ph", shape=self._std.shape)
-        
+
         self._update_op = tf.group(
             self._count_tf.assign(self._count_ph),
             self._mean_tf.assign(self._mean_ph),

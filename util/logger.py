@@ -3,7 +3,7 @@
 Some simple logging functionality, inspired by rllab's logging.
 Assumes that each diagnostic gets logged each iteration
 
-Call logz.configure_output_file() to start logging to a 
+Call logz.configure_output_file() to start logging to a
 tab-separated-values file (some_file_name.txt)
 
 To load the learning curves, you can do, for example
@@ -56,11 +56,11 @@ class Logger:
         self.log_current_row = {}
 
         output_path = filename or "output/log_%i.txt"%int(time.time())
-        
+
         out_dir = os.path.dirname(output_path)
         if not os.path.exists(out_dir) and Logger.is_root():
             os.makedirs(out_dir)
-        
+
         if (Logger.is_root()):
             self.output_file = open(output_path, 'w')
             assert osp.exists(output_path)
@@ -89,7 +89,7 @@ class Logger:
         """
         Print all of the diagnostics from the current iteration
         """
-        
+
         key_spacing = self._max_key_len
         format_str = "| %" + str(key_spacing) + "s | %15s |"
 
@@ -105,7 +105,7 @@ class Logger:
                         valstr = "%8.3g"%val
                     elif isinstance(val, int):
                         valstr = str(val)
-                    else: 
+                    else:
                         valstr = val
 
                     Logger.print(format_str%(key, valstr))
@@ -126,7 +126,7 @@ class Logger:
                 entry = self.log_current_row.get(key, "")
                 val = entry.val
                 vals.append(val)
-            
+
             if self.output_file is not None:
                 if self.first_row:
                     header_str = self._dump_str_template.format(*self.log_headers)

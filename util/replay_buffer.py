@@ -63,7 +63,7 @@ class ReplayBuffer(object):
             indices = list(range(self.buffer_tail, self.buffer_size))
             indices += list(range(0, self.buffer_head))
         return indices
-    
+
     def get_path_start(self, idx):
         return self.buffers[self.PATH_START_KEY][idx]
 
@@ -127,7 +127,7 @@ class ReplayBuffer(object):
     def store(self, path):
         start_idx = INVALID_IDX
         n = path.pathlength()
-        
+
         if (n > 0):
             assert path.is_valid()
 
@@ -151,7 +151,7 @@ class ReplayBuffer(object):
         self.buffer_tail = INVALID_IDX
         self.num_paths = 0
         return
-    
+
     def get_prev_idx(self, idx):
         prev_idx = idx - 1
         prev_idx[prev_idx < 0] += self.buffer_size
@@ -215,7 +215,7 @@ class ReplayBuffer(object):
                 else:
                     shape = [self.buffer_size]
                     dtype = val_type
-                    
+
                 self.buffers[key] = np.zeros(shape, dtype=dtype)
         return
 
@@ -244,7 +244,7 @@ class ReplayBuffer(object):
         if self.buffer_tail != INVALID_IDX:
             update_tail = idx[0] <= idx[-1] and idx[0] <= self.buffer_tail and idx[-1] >= self.buffer_tail
             update_tail |= idx[0] > idx[-1] and (idx[0] <= self.buffer_tail or idx[-1] >= self.buffer_tail)
-            
+
             if update_tail:
                 i = 0
                 while i < n:
@@ -259,7 +259,7 @@ class ReplayBuffer(object):
                         else:
                             self.buffers[self.PATH_START_KEY][start_idx:self.buffer_size] = INVALID_IDX
                             self.buffers[self.PATH_START_KEY][0:end_idx + 1] = INVALID_IDX
-                        
+
                         self.num_paths -= 1
                         i += pathlen + 1
                         self.buffer_tail = (end_idx + 1) % self.buffer_size;

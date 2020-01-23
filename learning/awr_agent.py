@@ -13,7 +13,7 @@ Advantage-Weighted Regression Agent
 class AWRAgent(rl_agent.RLAgent):
     ADV_EPS = 1e-5
 
-    def __init__(self, 
+    def __init__(self,
                  env,
                  sess,
 
@@ -42,8 +42,11 @@ class AWRAgent(rl_agent.RLAgent):
                  td_lambda=0.95,
                  temp=1.0,
 
+                 load_offpolicy_data=False,
+                 offpolicy_data_kwargs=None,
+
                  visualize=False):
-        
+
         self._actor_net_layers = actor_net_layers
         self._actor_stepsize = actor_stepsize
         self._actor_momentum = actor_momentum
@@ -63,11 +66,13 @@ class AWRAgent(rl_agent.RLAgent):
         self._weight_clip = weight_clip
         self._td_lambda = td_lambda
         self._temp = temp
-        
+
         self._critic_step_count = 0
         self._actor_steps_count = 0
 
         self._actor_bound_loss_weight = 10.0
+        self.load_offpolicy_data = load_offpolicy_data
+        self.offpolicy_data_kwargs = offpolicy_data_kwargs
 
         super().__init__(env=env,
                          sess=sess,
@@ -114,9 +119,9 @@ class AWRAgent(rl_agent.RLAgent):
     def train(self, max_iter, test_episodes, output_dir, output_iters):
         self._critic_step_count = 0
         self._actor_step_count = 0
-        super().train(max_iter=max_iter, 
+        super().train(max_iter=max_iter,
                       test_episodes=test_episodes,
-                      output_dir=output_dir, 
+                      output_dir=output_dir,
                       output_iters=output_iters)
         return
 
@@ -137,7 +142,7 @@ class AWRAgent(rl_agent.RLAgent):
             with tf.variable_scope(self.CRITIC_SCOPE):
                 self._norm_critic_tf = self._build_net_critic(self._get_critic_inputs())
                 self._critic_tf = self._val_norm.unnormalize_tf(self._norm_critic_tf)
-        
+
         sample_norm_a_tf = self._norm_a_pd_tf.sample()
         self._sample_a_logp_tf = self._norm_a_pd_tf.log_prob(sample_norm_a_tf)
         self._sample_a_tf = self._a_norm.unnormalize_tf(tf.cast(sample_norm_a_tf, tf.float32))
@@ -209,19 +214,19 @@ class AWRAgent(rl_agent.RLAgent):
                                 reuse=reuse);
         norm_val_tf = tf.squeeze(norm_val_tf, axis=-1)
         return norm_val_tf
-    
+
     def _update(self, iter, new_sample_count):
         idx = np.array(self._replay_buffer.get_unrolled_indices())
-        
+
         end_mask = self._replay_buffer.is_path_end(idx)
         valid_mask = np.logical_not(end_mask)
         valid_idx = idx[valid_mask]
         valid_idx = np.column_stack([valid_idx, np.nonzero(valid_mask)[0]])
-        
+
         # update critic
         vals = self._compute_batch_vals(idx)
         new_vals = self._compute_batch_new_vals(idx, vals)
-        
+
         critic_steps = int(np.ceil(self._critic_steps * new_sample_count / self._samples_per_iter))
         critic_losses = self._update_critic(critic_steps, valid_idx, new_vals)
 
@@ -230,28 +235,28 @@ class AWRAgent(rl_agent.RLAgent):
         new_vals = self._compute_batch_new_vals(idx, vals)
         adv, norm_adv, adv_mean, adv_std = self._calc_adv(new_vals, vals, valid_mask)
         adv_weights, adv_weights_mean, adv_weights_min, adv_weights_max = self._calc_adv_weights(norm_adv, valid_mask)
-        
+
         actor_steps = int(np.ceil(self._actor_steps * new_sample_count / self._samples_per_iter))
         actor_losses = self._update_actor(actor_steps, valid_idx, adv_weights)
 
 
         self._critic_step_count += critic_steps
         self._actor_step_count += actor_steps
-        
+
         self._logger.log_tabular("Critic_Loss", critic_losses["loss"])
         self._logger.log_tabular("Critic_Steps", self._critic_step_count)
         self._logger.log_tabular("Actor_Loss", actor_losses["loss"])
         self._logger.log_tabular("Actor_Steps", self._actor_step_count)
-        
+
         self._logger.log_tabular("Adv_Mean", adv_mean)
         self._logger.log_tabular("Adv_Std", adv_std)
         self._logger.log_tabular("Adv_Weights_Min", adv_weights_min)
         self._logger.log_tabular("Adv_Weights_Mean", adv_weights_mean)
         self._logger.log_tabular("Adv_Weights_Max", adv_weights_max)
-        
+
         info = {"critic_info": critic_losses, "actor_info": actor_losses}
         return info
-    
+
     def _update_critic(self, steps, sample_idx, tar_vals):
         num_idx = sample_idx.shape[0]
         steps_per_shuffle = int(np.ceil(num_idx / self._critic_batch_size))
@@ -277,7 +282,7 @@ class AWRAgent(rl_agent.RLAgent):
             else:
                 for key, val in curr_losses.items():
                     losses[key] += val
-        
+
         for key in losses.keys():
             losses[key] /= steps
 
@@ -296,7 +301,7 @@ class AWRAgent(rl_agent.RLAgent):
             batch_idx_end = batch_idx_beg + self._actor_batch_size
             actor_batch_idx = np.array(range(batch_idx_beg, batch_idx_end), dtype=np.int32)
             actor_batch_idx = np.mod(actor_batch_idx, num_idx)
-                
+
             actor_batch = sample_idx[actor_batch_idx]
             actor_batch_adv = adv_weights[actor_batch[:,1]]
             actor_s = self._replay_buffer.get("states", actor_batch[:,0])
@@ -309,7 +314,7 @@ class AWRAgent(rl_agent.RLAgent):
             else:
                 for key, val in curr_losses.items():
                     losses[key] += val
-        
+
         for key in losses.keys():
             losses[key] /= steps
 
@@ -325,7 +330,7 @@ class AWRAgent(rl_agent.RLAgent):
         losses = self._sess.run(run_tfs, feed)
         losses = {"loss": losses[1]}
         return losses
-    
+
     def _step_actor(self, s, a, a_w):
         feed = {
             self._s_tf: s,
@@ -337,14 +342,14 @@ class AWRAgent(rl_agent.RLAgent):
         losses = self._sess.run(run_tfs, feed)
         losses = {"loss": losses[1]}
         return losses
-    
+
     def _compute_batch_vals(self, idx):
         states = self._replay_buffer.get("states", idx)
         vals = self.eval_critic(states)
 
         is_end = self._replay_buffer.is_path_end(idx)
         is_fail = self._replay_buffer.check_terminal_flag(idx, rl_path.Terminate.Fail)
-        is_fail = np.logical_and(is_end, is_fail) 
+        is_fail = np.logical_and(is_end, is_fail)
 
         vals[is_fail] = 0.0
 
@@ -373,7 +378,7 @@ class AWRAgent(rl_agent.RLAgent):
 
             new_vals[start_i:end_i] = self._compute_return(r, self._discount, self._td_lambda, v)
             start_i = end_i + 1
-        
+
         return new_vals
 
     def _compute_return(self, rewards, discount, td_lambda, val_t):
@@ -390,7 +395,7 @@ class AWRAgent(rl_agent.RLAgent):
             next_ret = return_t[i + 1]
             curr_val = curr_r + discount * ((1.0 - td_lambda) * val_t[i + 1] + td_lambda * next_ret)
             return_t[i] = curr_val
-    
+
         return return_t
 
     def _calc_adv(self, new_vals, vals, valid_mask):
