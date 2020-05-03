@@ -165,20 +165,13 @@ class RLAgent(abc.ABC):
         total_train_path_count = 0
         total_new_samples = 0
 
-        demo_path = self.offpolicy_data_kwargs["demo_path"]
-        # train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths("/home/ashvin/code/railrl-private/gitignore/rlbench/demo_door_fixed2/demos5b_10_dict.npy")
-        # train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths("/home/ashvin/data/s3doodad/demos/icml2020/hand/pen.npy")
-        train_return, train_path_count, new_sample_count, all_paths = self._rollout_load_paths(demo_path)
-        total_train_return += train_path_count * train_return
-        total_train_path_count += train_path_count
-        total_new_samples += new_sample_count
-
-        # train_return, train_path_count, new_sample_count, paths = self._rollout_load_paths("/home/ashvin/data/s3doodad/ashvin/rfeatures/rlbench/open-drawer-vision/td3bc-with-state3/run0/id0/video_*_vae.p")
-        # total_train_return += train_path_count * train_return
-        # total_train_path_count += train_path_count
-        # total_new_samples += new_sample_count
-
-        # all_paths += paths
+        all_paths = []
+        for offpolicy_kwargs in self.offpolicy_data_sources:
+            train_return, train_path_count, new_sample_count, paths = self._rollout_load_paths(**offpolicy_kwargs)
+            total_train_return += train_path_count * train_return
+            total_train_path_count += train_path_count
+            total_new_samples += new_sample_count
+            all_paths += paths
 
         return total_train_return / total_train_path_count, total_train_path_count, total_new_samples, all_paths
 
@@ -390,17 +383,20 @@ class RLAgent(abc.ABC):
 
         return path
 
-    def _rollout_load_paths(self, pattern):
+    def _rollout_load_paths(self, path, obs_dict, is_demo, train_split=None):
         new_sample_count = 0
         path_count = 0
         total_return = 0
         paths = []
 
+        pattern = path
+        print(path)
+
         for filename in glob.glob(pattern):
             print("loading", filename)
             data = np.load(open(filename, "rb"), allow_pickle=True)
             for railrl_path in data:
-                path = self._load_path(railrl_path)
+                path = self._load_path(railrl_path, obs_dict)
 
                 path_id = self._replay_buffer.store(path)
                 valid_path = path_id != replay_buffer.INVALID_IDX
@@ -419,24 +415,22 @@ class RLAgent(abc.ABC):
                     assert False, "Invalid path detected"
 
         avg_return = total_return / path_count
+
+        print(avg_return, path_count, new_sample_count)
         return avg_return, path_count, new_sample_count, paths
 
-    def _load_path(self, railrl_path):
+    def _load_path(self, railrl_path, obs_dict, obs_key="observation"):
         path = rl_path.RLPath()
         H = min(len(railrl_path["observations"]), len(railrl_path["actions"]))
 
-        print("traj length", H)
-
         path.task_rewards = []
-
-        obs_key = self.offpolicy_data_kwargs.get("obs_key", False)
 
         for i in range(H):
             # self._env.update_
             ob = railrl_path["observations"][i]
             # self._env.update_obs(ob)
             # print(ob.keys())
-            if obs_key:
+            if obs_dict:
                 s = ob[obs_key]
             else:
                 s = ob

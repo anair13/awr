@@ -43,7 +43,7 @@ class AWRAgent(rl_agent.RLAgent):
                  temp=1.0,
 
                  load_offpolicy_data=False,
-                 offpolicy_data_kwargs=None,
+                 offpolicy_data_sources=None,
 
                  visualize=False):
 
@@ -72,7 +72,7 @@ class AWRAgent(rl_agent.RLAgent):
 
         self._actor_bound_loss_weight = 10.0
         self.load_offpolicy_data = load_offpolicy_data
-        self.offpolicy_data_kwargs = offpolicy_data_kwargs
+        self.offpolicy_data_sources = offpolicy_data_sources
 
         super().__init__(env=env,
                          sess=sess,

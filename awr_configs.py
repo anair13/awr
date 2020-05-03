@@ -211,5 +211,20 @@ AWR_CONFIGS = {
         "weight_clip": 20,
         "td_lambda": 0.95,
         "temp": 100.0,
+
+        "load_offpolicy_data": True,
+        "offpolicy_data_sources": [
+            dict(
+                path="/home/ashvin/data/s3doodad/demos/icml2020/hand/pen2_sparse.npy",
+                obs_dict=True,
+                is_demo=True,
+            ),
+            dict(
+                path="/home/ashvin/data/s3doodad/demos/icml2020/hand/pen_bc_sparse4.npy",
+                obs_dict=False,
+                is_demo=False,
+                train_split=0.9,
+            ),
+        ],
     },
 }
