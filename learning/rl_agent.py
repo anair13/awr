@@ -31,6 +31,7 @@ class RLAgent(abc.ABC):
                  samples_per_iter=2048,
                  replay_buffer_size=50000,
                  normalizer_samples=100000,
+                 max_path_length=200,
                  visualize=False):
 
         self._env = env
@@ -38,6 +39,7 @@ class RLAgent(abc.ABC):
 
         self._discount = discount
         self._samples_per_iter = samples_per_iter
+        self._max_path_length = max_path_length
         self._normalizer_samples = normalizer_samples
         self._replay_buffer = self._build_replay_buffer(replay_buffer_size)
 
@@ -344,7 +346,7 @@ class RLAgent(abc.ABC):
         avg_return = total_return / num_episodes
         return avg_return, num_episodes, paths
 
-    def _rollout_path(self, test, max_path_length=200):
+    def _rollout_path(self, test, ):
         path = rl_path.RLPath()
 
         s = self._env.reset()
@@ -369,7 +371,7 @@ class RLAgent(abc.ABC):
                 self.render_env()
 
             t += 1
-            if t >= max_path_length:
+            if t >= self._max_path_length:
                 break
 
         path.terminate = self._check_env_termination()
@@ -383,36 +385,39 @@ class RLAgent(abc.ABC):
 
         return path
 
-    def _rollout_load_paths(self, path, obs_dict, is_demo, train_split=None):
+    def _rollout_load_paths(self, path, obs_dict, is_demo, train_split=1):
+        from util.asset_loader import load_local_or_remote_file
         new_sample_count = 0
         path_count = 0
         total_return = 0
         paths = []
 
-        pattern = path
-        print(path)
+        # pattern = path
+        filename = path
 
-        for filename in glob.glob(pattern):
-            print("loading", filename)
-            data = np.load(open(filename, "rb"), allow_pickle=True)
-            for railrl_path in data:
-                path = self._load_path(railrl_path, obs_dict)
+        # for filename in glob.glob(pattern):
+        print("loading", filename)
+        data = load_local_or_remote_file(filename)
+        for railrl_path in data:
+            if np.random.random() > train_split: # split test data
+                continue
+            path = self._load_path(railrl_path, obs_dict)
 
-                path_id = self._replay_buffer.store(path)
-                valid_path = path_id != replay_buffer.INVALID_IDX
+            path_id = self._replay_buffer.store(path)
+            valid_path = path_id != replay_buffer.INVALID_IDX
 
-                if valid_path:
-                    path_return = path.calc_return()
+            if valid_path:
+                path_return = path.calc_return()
 
-                    if (self._enable_normalizer_update()):
-                        self._record_normalizers(path)
+                if (self._enable_normalizer_update()):
+                    self._record_normalizers(path)
 
-                    new_sample_count += path.pathlength()
-                    total_return += path_return
-                    path_count += 1
-                    paths.append(path)
-                else:
-                    assert False, "Invalid path detected"
+                new_sample_count += path.pathlength()
+                total_return += path_return
+                path_count += 1
+                paths.append(path)
+            else:
+                assert False, "Invalid path detected"
 
         avg_return = total_return / path_count
 

@@ -44,6 +44,7 @@ class AWRAgent(rl_agent.RLAgent):
 
                  load_offpolicy_data=False,
                  offpolicy_data_sources=None,
+                 max_path_length=200,
 
                  visualize=False):
 
@@ -80,7 +81,8 @@ class AWRAgent(rl_agent.RLAgent):
                          samples_per_iter=samples_per_iter,
                          replay_buffer_size=replay_buffer_size,
                          normalizer_samples=normalizer_samples,
-                         visualize=visualize)
+                         visualize=visualize,
+                         max_path_length=max_path_length)
         return
 
     def sample_action(self, s, test):
