@@ -44,7 +44,7 @@ class AWRAgent(rl_agent.RLAgent):
 
                  load_offpolicy_data=False,
                  offpolicy_data_sources=None,
-                 max_path_length=200,
+                 max_path_length=0,
 
                  visualize=False):
 

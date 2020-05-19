@@ -31,7 +31,7 @@ class RLAgent(abc.ABC):
                  samples_per_iter=2048,
                  replay_buffer_size=50000,
                  normalizer_samples=100000,
-                 max_path_length=200,
+                 max_path_length=0,
                  visualize=False):
 
         self._env = env
@@ -371,7 +371,7 @@ class RLAgent(abc.ABC):
                 self.render_env()
 
             t += 1
-            if t >= self._max_path_length:
+            if self._max_path_length and t >= self._max_path_length:
                 break
 
         path.terminate = self._check_env_termination()
